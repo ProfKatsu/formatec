@@ -33,7 +33,50 @@ async function requireIdentity(){if(!token){showLogin();return false;}identity=i
 async function quiz(id,version){if(!courses[id])return home();activeCourse=id;main.innerHTML='<p>Preparando sua avaliação…</p>';const {questions}=await api('questions',null,`&course=${id}`);if(version!==routeVersion)return;requestId=crypto.randomUUID();main.innerHTML=`<a class="back" href="#curso/${id}">← Revisar os materiais</a><p class="eyebrow">AVALIAÇÃO · ${courses[id].short}</p><h1>Cinco questões para refletir.</h1><p>Sem login e sem código por e-mail. Informe seu nome e escola, responda às cinco questões e veja seu resultado.</p><form id="quiz" class="panel"><label>Nome completo<input name="teacher" minlength="3" maxlength="150" autocomplete="name" required></label><label>Escola<input name="school" minlength="3" maxlength="200" autocomplete="organization" required></label><label class="check"><input name="reviewed" type="checkbox" required>Declaro que estudei os materiais desta formação.</label>${id==='robotica'?'<label class="check"><input name="eligible" type="checkbox" required>Sou professor(a) de escola PEI 9 horas e possuo aulas de Robótica atribuídas.</label>':''}${questions.map((q,i)=>`<fieldset><legend>${i+1}. ${esc(q.text)}</legend>${q.options.map((o,j)=>`<label class="option"><input type="radio" name="q${i}" value="${j}" required>${esc(o)}</label>`).join('')}</fieldset>`).join('')}<p class="small">Seu nome, escola, respostas, resultado, data e tentativas, quando o registro for confirmado, ficarão disponíveis para o PEC responsável acompanhar a formação. <a href="#privacidade">Saiba mais</a>.</p><p id="submit-status" role="status"></p><button class="primary" type="submit">Enviar avaliação e ver resultado →</button></form>`;
  $('#quiz').onsubmit=async e=>{e.preventDefault();const button=e.submitter;button.disabled=true;$('#submit-status').textContent='Registrando sua tentativa…';const f=new FormData(e.target);try{selectParticipant(f.get('teacher'),f.get('school'));const payload={course:id,name:f.get('teacher'),school:f.get('school'),reviewed:f.has('reviewed'),eligible:f.has('eligible'),answers:questions.map((_,i)=>Number(f.get('q'+i))),requestId};const data=await api('play',payload);result(id,data,payload);}catch(error){$('#submit-status').textContent=error.message;button.disabled=false;}};
 }
-function result(id,data,payload){main.innerHTML=`<p class="eyebrow">${data.recorded?'AVALIAÇÃO REGISTRADA':'QUIZ CONCLUÍDO'}</p><h1>Mais um passo no seu percurso.</h1><section class="panel"><div class="score">${data.score}<small> / 5</small></div><p>acertos nesta tentativa</p>${data.recorded?`<p><strong>Tentativa ${data.attempt.attempt_number}</strong> · ${date(data.attempt.completed_at)} (São Paulo)</p><p>Participação registrada no relatório do PEC.</p>`:`<div class="warning"><p>${esc(data.message)}</p><button class="secondary" id="retry-record">Tentar registrar novamente</button><p id="retry-status" role="status"></p></div>`}<p>Não há nota mínima de aprovação definida.</p></section><section class="panel"><h2>Revise suas respostas</h2>${data.feedback.map((f,i)=>`<h3>${f.correct?'✓':'↺'} Questão ${i+1} · ${f.correct?'Correta':'Para revisar'}</h3><p>${esc(f.explanation)}</p>`).join('')}</section><section class="panel"><p class="eyebrow">AINDA FALTA A ETAPA NA SED</p>${sedBlock(id)}<a class="primary" href="#sed">Ver orientações SED →</a></section><div class="actions"><a class="secondary" href="#curso/${id}">Revisar formação</a><button class="secondary" id="again">Fazer nova tentativa</button><a class="secondary" href="#conta">Meu histórico</a></div>${help()}`;if($('#retry-record'))$('#retry-record').onclick=async e=>{e.target.disabled=true;try{const next=await api('play',payload);result(id,next,payload);}catch(error){$('#retry-status').textContent=error.message;e.target.disabled=false;}};$('#again').onclick=()=>quiz(id,routeVersion);window.scrollTo(0,0);}
+
+function result(id,data,payload){
+ main.innerHTML=`
+  <p class="eyebrow">AVALIAÇÃO CONCLUÍDA</p>
+  <h1>Mais um passo no seu percurso.</h1>
+
+  <section class="panel">
+   <div class="score">
+    ${data.score}<small> / 5</small>
+   </div>
+   <p>acertos nesta tentativa</p>
+   <p>Quiz concluído! Confira suas respostas e continue aprimorando seus conhecimentos.</p>
+   <p>Não há nota mínima de aprovação definida.</p>
+  </section>
+
+  <section class="panel">
+   <h2>Revise suas respostas</h2>
+   ${data.feedback.map((f,i)=>`
+    <h3>
+     ${f.correct?'✓':'↺'}
+     Questão ${i+1} · ${f.correct?'Correta':'Para revisar'}
+    </h3>
+    <p>${esc(f.explanation)}</p>
+   `).join('')}
+  </section>
+
+  <section class="panel">
+   <p class="eyebrow">AINDA FALTA A ETAPA NA SED</p>
+   ${sedBlock(id)}
+   <a class="primary" href="#sed">Ver orientações SED →</a>
+  </section>
+
+  <div class="actions">
+   <a class="secondary" href="#curso/${id}">Revisar formação</a>
+   <button class="secondary" id="again">Fazer nova tentativa</button>
+  </div>
+
+  ${help()}
+ `;
+
+ $('#again').onclick=()=>quiz(id,routeVersion);
+ window.scrollTo(0,0);
+}
+
 async function account(version){main.innerHTML='<h1>Meu percurso</h1>';const {rows}=await api('guest-history');if(version!==routeVersion)return;main.innerHTML=`<p class="eyebrow">MEU PERCURSO</p><h1>Suas formações, em um lugar.</h1><div class="session-actions"><p>Histórico deste navegador. Em computador compartilhado, encerre seu acesso ao terminar.</p><button id="clear-participant" class="quiet">Encerrar meu acesso neste navegador</button></div>${rows.length?rows.map(row=>`<article class="panel"><h2>${courses[row.course].title}</h2><p>${esc(row.name)} · ${esc(row.school)}</p><p><strong>${row.score}/5 acertos</strong> · Tentativa ${row.attempt_number} · ${date(row.completed_at)} (São Paulo)</p><p>SED: ${row.sed_declared_at?`procedimento declarado em ${date(row.sed_declared_at)}`:'pendente de declaração'}.</p>${!row.sed_declared_at?`<label class="check"><input type="checkbox" class="sed-confirm" data-id="${row.id}">Declaro que já realizei o procedimento na SED para esta formação.</label><button class="secondary declare" data-id="${row.id}" disabled>Registrar declaração</button>`:''}<p class="small">Declaração do professor. Não representa verificação oficial na SED.</p></article>`).join(''):'<section class="panel"><p>Você ainda não enviou uma avaliação.</p><a href="#inicio">Escolher formação →</a></section>'}`;$('#clear-participant').onclick=()=>{localStorage.removeItem('formation-guest');localStorage.removeItem('formation-profile');location.hash='#inicio';notify('Acesso ao histórico encerrado neste navegador.');};document.querySelectorAll('.sed-confirm').forEach(el=>el.onchange=()=>{document.querySelector(`button.declare[data-id="${el.dataset.id}"]`).disabled=!el.checked;});document.querySelectorAll('.declare').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await api('guest-sed',{id:b.dataset.id});await account(routeVersion);notify('Declaração registrada.');}catch(e){notify(e.message);b.disabled=false;}});}
 function logout(){token=null;identity=null;sessionStorage.removeItem('formation-token');location.hash='#inicio';}
 async function admin(version){main.innerHTML='<h1>Acompanhamento das formações</h1>';if(!await requireIdentity()){main.innerHTML+='<p>Acesso exclusivo do administrador.</p><button class="primary" id="retry-login">Entrar</button>';$('#retry-login').onclick=showLogin;return;}if(!identity.admin){main.innerHTML+='<p class="warning">Este relatório é exclusivo do PEC administrador. Sua conta pode acessar apenas seu próprio histórico.</p><a href="#conta">Meu histórico</a>';return;}main.innerHTML+='<p>Carregando todos os registros…</p>';allRows=[];for(let page=0;;page++){const {rows}=await api('report',null,`&page=${page}`);if(version!==routeVersion)return;allRows.push(...rows);if(rows.length<500)break;}
